@@ -41,9 +41,14 @@ static int kgsl_pipe_get_param(struct fd_pipe *pipe,
 	case FD_DEVICE_ID:
 		*value = kgsl_pipe->devinfo.device_id;
 		return 0;
-	case FD_GPU_ID:
-		*value = kgsl_pipe->devinfo.gpu_id;
+	case FD_GPU_ID: {
+		uint32_t chip_id = kgsl_pipe->devinfo.chip_id;
+
+		*value = ((chip_id >> 8) & 0xF) +
+			(((chip_id >> 12) & 0xF) * 10) +
+			(((chip_id >> 16) & 0xF) * 100);
 		return 0;
+	}
 	case FD_GMEM_SIZE:
 		*value = kgsl_pipe->devinfo.gmem_sizebytes;
 		return 0;
@@ -64,14 +69,15 @@ static int kgsl_pipe_wait(struct fd_pipe *pipe, uint32_t timestamp,
 		uint64_t timeout)
 {
 	struct kgsl_pipe *kgsl_pipe = to_kgsl_pipe(pipe);
-	struct kgsl_device_waittimestamp req = {
+	struct _kgsl_cmdstream_waittimestamp_t req = {
+			.device_id = GSL_DEVICE_YAMATO,
 			.timestamp = timestamp,
 			.timeout   = 5000,
 	};
 	int ret;
 
 	do {
-		ret = ioctl(kgsl_pipe->fd, IOCTL_KGSL_DEVICE_WAITTIMESTAMP, &req);
+		ret = ioctl(kgsl_pipe->fd, IOCTL_KGSL_CMDSTREAM_WAITTIMESTAMP, &req);
 	} while ((ret == -1) && ((errno == EINTR) || (errno == EAGAIN)));
 	if (ret)
 		ERROR_MSG("waittimestamp failed! %d (%s)", ret, strerror(errno));
@@ -83,8 +89,11 @@ static int kgsl_pipe_wait(struct fd_pipe *pipe, uint32_t timestamp,
 drm_private int kgsl_pipe_timestamp(struct kgsl_pipe *kgsl_pipe,
 		uint32_t *timestamp)
 {
-	struct kgsl_cmdstream_readtimestamp req = {
-			.type = KGSL_TIMESTAMP_RETIRED
+	gsl_timestamp_t ts;
+	struct _kgsl_cmdstream_readtimestamp_t req = {
+			.device_id = GSL_DEVICE_YAMATO,
+			.type = GSL_TIMESTAMP_RETIRED,
+			.timestamp = &ts,
 	};
 	int ret = ioctl(kgsl_pipe->fd, IOCTL_KGSL_CMDSTREAM_READTIMESTAMP, &req);
 	if (ret) {
@@ -92,19 +101,22 @@ drm_private int kgsl_pipe_timestamp(struct kgsl_pipe *kgsl_pipe,
 				ret, strerror(errno));
 		return ret;
 	}
-	*timestamp = req.timestamp;
+	*timestamp = ts;
 	return 0;
 }
 
 static void kgsl_pipe_destroy(struct fd_pipe *pipe)
 {
 	struct kgsl_pipe *kgsl_pipe = to_kgsl_pipe(pipe);
-	struct kgsl_drawctxt_destroy req = {
+	struct _kgsl_context_destroy_t req = {
+			.device_id = GSL_DEVICE_YAMATO,
 			.drawctxt_id = kgsl_pipe->drawctxt_id,
 	};
 
+	printf("@MF@ %s [%p] fd=%d drawctxt=%d\n", __func__, kgsl_pipe, kgsl_pipe->fd, kgsl_pipe->drawctxt_id);
+
 	if (kgsl_pipe->drawctxt_id)
-		ioctl(kgsl_pipe->fd, IOCTL_KGSL_DRAWCTXT_DESTROY, &req);
+		ioctl(kgsl_pipe->fd, IOCTL_KGSL_CONTEXT_DESTROY, &req);
 
 	if (kgsl_pipe->fd >= 0)
 		close(kgsl_pipe->fd);
@@ -191,10 +203,11 @@ drm_private void kgsl_pipe_process_pending(struct kgsl_pipe *kgsl_pipe,
 	}
 }
 
-static int getprop(int fd, enum kgsl_property_type type,
+static int getprop(int fd, enum _gsl_property_type_t type,
 		void *value, int sizebytes)
 {
-	struct kgsl_device_getproperty req = {
+	struct _kgsl_device_getproperty_t req = {
+			.device_id = GSL_DEVICE_YAMATO,
 			.type = type,
 			.value = value,
 			.sizebytes = sizebytes,
@@ -203,21 +216,36 @@ static int getprop(int fd, enum kgsl_property_type type,
 }
 
 #define GETPROP(fd, prop, x) do { \
-	if (getprop((fd), KGSL_PROP_##prop, &(x), sizeof(x))) {     \
+	if (getprop((fd), GSL_PROP_##prop, &(x), sizeof(x))) {     \
 		ERROR_MSG("failed to get property: " #prop);            \
 		goto fail;                                              \
 	} } while (0)
 
 
+static int kgsl_pipe_start(int fd)
+{
+	kgsl_device_start_t req = {
+		.device_id = GSL_DEVICE_YAMATO,
+		.flags = 0
+	};
+
+	return ioctl(fd, IOCTL_KGSL_DEVICE_START, &req);
+}
+
 drm_private struct fd_pipe * kgsl_pipe_new(struct fd_device *dev,
 		enum fd_pipe_id id)
 {
 	static const char *paths[] = {
-			[FD_PIPE_3D] = "/dev/kgsl-3d0",
+			[FD_PIPE_3D] = "/dev/gsl_kmod",
 			[FD_PIPE_2D] = "/dev/kgsl-2d0",
 	};
-	struct kgsl_drawctxt_create req = {
-			.flags = 0x2000, /* ??? */
+	struct kgsl_device *kgsl_dev = to_kgsl_device(dev);
+	unsigned int drawctxt_id;
+	struct _kgsl_context_create_t req = {
+			.device_id = GSL_DEVICE_YAMATO,
+			.drawctxt_id = &drawctxt_id,
+			.type = GSL_CONTEXT_TYPE_OPENGL,
+			.flags = 0x2, // ???
 	};
 	struct kgsl_pipe *kgsl_pipe = NULL;
 	struct fd_pipe *pipe = NULL;
@@ -230,7 +258,14 @@ drm_private struct fd_pipe * kgsl_pipe_new(struct fd_device *dev,
 		goto fail;
 	}
 
-	ret = ioctl(fd, IOCTL_KGSL_DRAWCTXT_CREATE, &req);
+	ret = kgsl_pipe_start(fd);
+	if (ret) {
+		ERROR_MSG("Failed to start (%d)\n", ret);
+		goto fail;
+	}
+
+
+	ret = ioctl(fd, IOCTL_KGSL_CONTEXT_CREATE, &req);
 	if (ret) {
 		ERROR_MSG("failed to allocate context: %d (%s)",
 				ret, strerror(errno));
@@ -247,12 +282,12 @@ drm_private struct fd_pipe * kgsl_pipe_new(struct fd_device *dev,
 	pipe->funcs = &funcs;
 
 	kgsl_pipe->fd = fd;
-	kgsl_pipe->drawctxt_id = req.drawctxt_id;
+	kgsl_pipe->drawctxt_id = (uint32_t)drawctxt_id;
 
 	list_inithead(&kgsl_pipe->submit_list);
 	list_inithead(&kgsl_pipe->pending_list);
 
-	GETPROP(fd, VERSION,     kgsl_pipe->version);
+	//GETPROP(fd, VERSION,     kgsl_pipe->version);
 	GETPROP(fd, DEVICE_INFO, kgsl_pipe->devinfo);
 
 	if (kgsl_pipe->devinfo.gpu_id >= 500) {
@@ -268,15 +303,23 @@ drm_private struct fd_pipe * kgsl_pipe_new(struct fd_device *dev,
 			(kgsl_pipe->devinfo.chip_id >>  8) & 0xff,
 			(kgsl_pipe->devinfo.chip_id >>  0) & 0xff);
 	INFO_MSG(" Device-id:       %d", kgsl_pipe->devinfo.device_id);
-	INFO_MSG(" GPU-id:          %d", kgsl_pipe->devinfo.gpu_id);
+//	INFO_MSG(" GPU-id:          %d", kgsl_pipe->devinfo.gpu_id);
 	INFO_MSG(" MMU enabled:     %d", kgsl_pipe->devinfo.mmu_enabled);
 	INFO_MSG(" GMEM Base addr:  0x%08x", kgsl_pipe->devinfo.gmem_gpubaseaddr);
 	INFO_MSG(" GMEM size:       0x%08x", kgsl_pipe->devinfo.gmem_sizebytes);
+#if 0
 	INFO_MSG(" Driver version:  %d.%d",
 			kgsl_pipe->version.drv_major, kgsl_pipe->version.drv_minor);
-	INFO_MSG(" Device version:  %d.%d",
-			kgsl_pipe->version.dev_major, kgsl_pipe->version.dev_minor);
+	INFO_MSG(" Device version:  %06x",
+			kgsl_pipe->chip_id);
+#endif
+	printf("@MF@ %s pipe=%p chipId=%08x fd=%d drawctxt=%d\n", __func__,
+		kgsl_pipe,
+		kgsl_pipe->devinfo.chip_id,
+		kgsl_pipe->fd,
+		kgsl_pipe->drawctxt_id);
 
+	kgsl_dev->pipe = kgsl_pipe;
 	return pipe;
 fail:
 	if (pipe)

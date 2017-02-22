@@ -92,6 +92,8 @@ struct fd_device * fd_device_new(int fd)
 		return NULL;
 	}
 
+	INFO_MSG("@MF@ %s version=%s\n", __func__, version->name);
+
 	if (!strcmp(version->name, "msm")) {
 		DEBUG_MSG("msm DRM device");
 		dev = msm_device_new(fd);
@@ -100,6 +102,15 @@ struct fd_device * fd_device_new(int fd)
 		DEBUG_MSG("kgsl DRM device");
 		dev = kgsl_device_new(fd);
 #endif
+	} else if (!strcmp(version->name, "imxdrm")) {
+		DEBUG_MSG("imx DRM device");
+		if (getenv("FD_DRM_USE_KGSL")) {
+			printf("@MF@ using KGSL kernel interface\n");
+			dev = kgsl_device_new(fd);
+		} else {
+			printf("@MF@ using DRM kernel interface\n");
+			dev = msm_device_new(fd);
+		}
 	} else {
 		ERROR_MSG("unknown device: %s", version->name);
 		dev = NULL;
@@ -132,11 +143,15 @@ struct fd_device * fd_device_new_dup(int fd)
 struct fd_device * fd_device_ref(struct fd_device *dev)
 {
 	atomic_inc(&dev->refcnt);
+
+	printf("@MF@ %s new refcnt=%d\n", __func__, atomic_read(&dev->refcnt));
+
 	return dev;
 }
 
 static void fd_device_del_impl(struct fd_device *dev)
 {
+	printf("@MF@ %s\n", __func__);
 	fd_cleanup_bo_cache(dev, 0);
 	drmHashDestroy(dev->handle_table);
 	drmHashDestroy(dev->name_table);
@@ -147,6 +162,7 @@ static void fd_device_del_impl(struct fd_device *dev)
 
 drm_private void fd_device_del_locked(struct fd_device *dev)
 {
+	printf("@MF@ %s refcnt=%d\n", __func__, atomic_read(&dev->refcnt));
 	if (!atomic_dec_and_test(&dev->refcnt))
 		return;
 	fd_device_del_impl(dev);
@@ -154,6 +170,7 @@ drm_private void fd_device_del_locked(struct fd_device *dev)
 
 void fd_device_del(struct fd_device *dev)
 {
+	printf("@MF@ %s refcnt=%d\n", __func__, atomic_read(&dev->refcnt));
 	if (!atomic_dec_and_test(&dev->refcnt))
 		return;
 	pthread_mutex_lock(&table_lock);

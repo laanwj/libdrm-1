@@ -131,6 +131,7 @@ struct fd_bo_funcs {
 	int (*cpu_prep)(struct fd_bo *bo, struct fd_pipe *pipe, uint32_t op);
 	void (*cpu_fini)(struct fd_bo *bo);
 	void (*destroy)(struct fd_bo *bo);
+	void *(*map)(struct fd_bo *bo);
 };
 
 struct fd_bo {

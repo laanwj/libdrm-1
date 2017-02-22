@@ -54,7 +54,10 @@ drm_private struct fd_device * kgsl_device_new(int fd)
 	struct kgsl_device *kgsl_dev;
 	struct fd_device *dev;
 
+	printf("@MF@ using imx-kgsl\n");
+
 	kgsl_dev = calloc(1, sizeof(*kgsl_dev));
+
 	if (!kgsl_dev)
 		return NULL;
 

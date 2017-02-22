@@ -34,50 +34,12 @@
 
 #include <linux/fb.h>
 
-static int set_memtype(struct fd_device *dev, uint32_t handle, uint32_t flags)
-{
-	struct drm_kgsl_gem_memtype req = {
-			.handle = handle,
-			.type = flags & DRM_FREEDRENO_GEM_TYPE_MEM_MASK,
-	};
-
-	return drmCommandWrite(dev->fd, DRM_KGSL_GEM_SETMEMTYPE,
-			&req, sizeof(req));
-}
-
-static int bo_alloc(struct kgsl_bo *kgsl_bo)
-{
-	struct fd_bo *bo = &kgsl_bo->base;
-	if (!kgsl_bo->offset) {
-		struct drm_kgsl_gem_alloc req = {
-				.handle = bo->handle,
-		};
-		int ret;
-
-		/* if the buffer is already backed by pages then this
-		 * doesn't actually do anything (other than giving us
-		 * the offset)
-		 */
-		ret = drmCommandWriteRead(bo->dev->fd, DRM_KGSL_GEM_ALLOC,
-				&req, sizeof(req));
-		if (ret) {
-			ERROR_MSG("alloc failed: %s", strerror(errno));
-			return ret;
-		}
-
-		kgsl_bo->offset = req.offset;
-	}
-
-	return 0;
-}
-
 static int kgsl_bo_offset(struct fd_bo *bo, uint64_t *offset)
 {
 	struct kgsl_bo *kgsl_bo = to_kgsl_bo(bo);
-	int ret = bo_alloc(kgsl_bo);
-	if (ret)
-		return ret;
-	*offset = kgsl_bo->offset;
+
+	*offset = kgsl_bo->gpuaddr;
+
 	return 0;
 }
 
@@ -124,8 +86,43 @@ static int kgsl_bo_madvise(struct fd_bo *bo, int willneed)
 static void kgsl_bo_destroy(struct fd_bo *bo)
 {
 	struct kgsl_bo *kgsl_bo = to_kgsl_bo(bo);
-	free(kgsl_bo);
+	gsl_memdesc_t memdesc = {
+			.gpuaddr = kgsl_bo->gpuaddr,
+	};
+	struct _kgsl_sharedmem_free_t req = {
+			.memdesc = &memdesc,
+	};
+	int ret;
 
+	printf("@MF@ %s gpuaddr=%08x\n", __func__, kgsl_bo->gpuaddr);
+
+	ret = ioctl(kgsl_bo->dev->pipe->fd, IOCTL_KGSL_SHAREDMEM_FREE, &req);
+	if (ret) {
+		ERROR_MSG("sharedmem free failed: %s", strerror(errno));
+	}
+
+	free(kgsl_bo);
+}
+
+static void *kgsl_bo_map(struct fd_bo *bo)
+{
+	struct kgsl_bo *kgsl_bo = to_kgsl_bo(bo);
+	uint64_t offset;
+	int ret;
+	void *p;
+
+	ret = kgsl_bo_offset(bo, &offset);
+	if (ret) {
+		return NULL;
+	}
+
+	p = mmap(0, bo->size, PROT_READ | PROT_WRITE, MAP_SHARED,
+			kgsl_bo->dev->pipe->fd, offset);
+	if (p == MAP_FAILED) {
+		ERROR_MSG("mmap failed: %s", strerror(errno));
+		return NULL;
+	}
+	return p;
 }
 
 static const struct fd_bo_funcs funcs = {
@@ -134,28 +131,31 @@ static const struct fd_bo_funcs funcs = {
 		.cpu_fini = kgsl_bo_cpu_fini,
 		.madvise = kgsl_bo_madvise,
 		.destroy = kgsl_bo_destroy,
+		.map = kgsl_bo_map,
 };
 
 /* allocate a buffer handle: */
 drm_private int kgsl_bo_new_handle(struct fd_device *dev,
 		uint32_t size, uint32_t flags, uint32_t *handle)
 {
-	struct drm_kgsl_gem_create req = {
-			.size = size,
+	struct kgsl_device *kgsl_dev = to_kgsl_device(dev);
+	gsl_memdesc_t memdesc;
+	struct _kgsl_sharedmem_alloc_t req = {
+			.device_id = GSL_DEVICE_YAMATO,
+			.sizebytes = size,
+			.flags = GSL_MEMFLAGS_ALIGN4K,
+			.memdesc = &memdesc,
 	};
 	int ret;
 
-	ret = drmCommandWriteRead(dev->fd, DRM_KGSL_GEM_CREATE,
-			&req, sizeof(req));
-	if (ret)
+	ret = ioctl(kgsl_dev->pipe->fd, IOCTL_KGSL_SHAREDMEM_ALLOC, &req);
+	if (ret) {
+		ERROR_MSG("gpumem allocation failed: %s", strerror(errno));
 		return ret;
+	}
+	printf("@MF@ %s size=0x%x flags=0x%x => gpuaddr %08x\n", __func__, size, flags, memdesc.gpuaddr);
 
-	// TODO make flags match msm driver, since kgsl is legacy..
-	// translate flags in kgsl..
-
-	set_memtype(dev, req.handle, flags);
-
-	*handle = req.handle;
+	*handle = memdesc.gpuaddr;
 
 	return 0;
 }
@@ -164,6 +164,7 @@ drm_private int kgsl_bo_new_handle(struct fd_device *dev,
 drm_private struct fd_bo * kgsl_bo_from_handle(struct fd_device *dev,
 		uint32_t size, uint32_t handle)
 {
+	struct kgsl_device *kgsl_dev = to_kgsl_device(dev);
 	struct kgsl_bo *kgsl_bo;
 	struct fd_bo *bo;
 	unsigned i;
@@ -172,6 +173,8 @@ drm_private struct fd_bo * kgsl_bo_from_handle(struct fd_device *dev,
 	if (!kgsl_bo)
 		return NULL;
 
+	kgsl_bo->gpuaddr = handle;
+	kgsl_bo->dev = kgsl_dev;
 	bo = &kgsl_bo->base;
 	bo->funcs = &funcs;
 
@@ -181,72 +184,8 @@ drm_private struct fd_bo * kgsl_bo_from_handle(struct fd_device *dev,
 	return bo;
 }
 
-struct fd_bo *
-fd_bo_from_fbdev(struct fd_pipe *pipe, int fbfd, uint32_t size)
-{
-	struct fd_bo *bo;
-
-	if (!is_kgsl_pipe(pipe))
-		return NULL;
-
-	bo = fd_bo_new(pipe->dev, 1, 0);
-
-	/* this is fugly, but works around a bug in the kernel..
-	 * priv->memdesc.size never gets set, so getbufinfo ioctl
-	 * thinks the buffer hasn't be allocate and fails
-	 */
-	if (bo) {
-		void *fbmem = drm_mmap(NULL, size, PROT_READ | PROT_WRITE,
-				MAP_SHARED, fbfd, 0);
-		struct kgsl_map_user_mem req = {
-				.memtype = KGSL_USER_MEM_TYPE_ADDR,
-				.len     = size,
-				.offset  = 0,
-				.hostptr = (unsigned long)fbmem,
-		};
-		struct kgsl_bo *kgsl_bo = to_kgsl_bo(bo);
-		int ret;
-
-		ret = ioctl(to_kgsl_pipe(pipe)->fd, IOCTL_KGSL_MAP_USER_MEM, &req);
-		if (ret) {
-			ERROR_MSG("mapping user mem failed: %s",
-					strerror(errno));
-			goto fail;
-		}
-		kgsl_bo->gpuaddr = req.gpuaddr;
-		bo->map = fbmem;
-	}
-
-	return bo;
-fail:
-	if (bo)
-		fd_bo_del(bo);
-	return NULL;
-}
-
 drm_private uint32_t kgsl_bo_gpuaddr(struct kgsl_bo *kgsl_bo, uint32_t offset)
 {
-	struct fd_bo *bo = &kgsl_bo->base;
-	if (!kgsl_bo->gpuaddr) {
-		struct drm_kgsl_gem_bufinfo req = {
-				.handle = bo->handle,
-		};
-		int ret;
-
-		ret = bo_alloc(kgsl_bo);
-		if (ret) {
-			return ret;
-		}
-
-		ret = drmCommandWriteRead(bo->dev->fd, DRM_KGSL_GEM_GET_BUFINFO,
-				&req, sizeof(req));
-		if (ret) {
-			ERROR_MSG("get bufinfo failed: %s", strerror(errno));
-			return 0;
-		}
-
-		kgsl_bo->gpuaddr = req.gpuaddr[0];
-	}
 	return kgsl_bo->gpuaddr + offset;
 }
 
@@ -276,6 +215,7 @@ drm_private uint32_t kgsl_bo_gpuaddr(struct kgsl_bo *kgsl_bo, uint32_t offset)
 drm_private void kgsl_bo_set_timestamp(struct kgsl_bo *kgsl_bo,
 		uint32_t timestamp)
 {
+#if 0
 	struct fd_bo *bo = &kgsl_bo->base;
 	if (bo->name) {
 		struct drm_kgsl_gem_active req = {
@@ -290,12 +230,14 @@ drm_private void kgsl_bo_set_timestamp(struct kgsl_bo *kgsl_bo,
 			ERROR_MSG("set active failed: %s", strerror(errno));
 		}
 	}
+#endif
 }
 
 drm_private uint32_t kgsl_bo_get_timestamp(struct kgsl_bo *kgsl_bo)
 {
-	struct fd_bo *bo = &kgsl_bo->base;
 	uint32_t timestamp = 0;
+#if 0
+	struct fd_bo *bo = &kgsl_bo->base;
 	if (bo->name) {
 		struct drm_kgsl_gem_bufinfo req = {
 				.handle = bo->handle,
@@ -311,5 +253,6 @@ drm_private uint32_t kgsl_bo_get_timestamp(struct kgsl_bo *kgsl_bo)
 
 		timestamp = req.active;
 	}
+#endif
 	return timestamp;
 }

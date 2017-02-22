@@ -30,11 +30,14 @@
 #define KGSL_PRIV_H_
 
 #include "freedreno_priv.h"
-#include "msm_kgsl.h"
+#include "imx_kgsl.h"
 #include "kgsl_drm.h"
+
+struct kgsl_pipe;
 
 struct kgsl_device {
 	struct fd_device base;
+	struct kgsl_pipe *pipe;
 };
 
 static inline struct kgsl_device * to_kgsl_device(struct fd_device *x)
@@ -49,8 +52,7 @@ struct kgsl_pipe {
 	uint32_t drawctxt_id;
 
 	/* device properties: */
-	struct kgsl_version version;
-	struct kgsl_devinfo devinfo;
+	struct _gsl_devinfo_t devinfo;
 
 	/* list of bo's that are referenced in ringbuffer but not
 	 * submitted yet:
@@ -79,6 +81,7 @@ struct kgsl_bo {
 	struct fd_bo base;
 	uint64_t offset;
 	uint32_t gpuaddr;
+	struct kgsl_device *dev;
 	/* timestamp (per pipe) for bo's in a pipe's pending_list: */
 	uint32_t timestamp[FD_PIPE_MAX];
 	/* list-node for pipe's submit_list or pending_list */

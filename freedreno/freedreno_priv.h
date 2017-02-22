@@ -157,6 +157,7 @@ struct fd_bo_funcs {
 	void (*cpu_fini)(struct fd_bo *bo);
 	int (*madvise)(struct fd_bo *bo, int willneed);
 	void (*destroy)(struct fd_bo *bo);
+	void *(*map)(struct fd_bo *bo);
 };
 
 struct fd_bo {

@@ -81,6 +81,7 @@ struct kgsl_bo {
 	struct fd_bo base;
 	uint64_t offset;
 	uint32_t gpuaddr;
+	uint32_t bo_timestamp;
 	struct kgsl_device *dev;
 	/* timestamp (per pipe) for bo's in a pipe's pending_list: */
 	uint32_t timestamp[FD_PIPE_MAX];

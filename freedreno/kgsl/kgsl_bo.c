@@ -230,13 +230,15 @@ drm_private void kgsl_bo_set_timestamp(struct kgsl_bo *kgsl_bo,
 			ERROR_MSG("set active failed: %s", strerror(errno));
 		}
 	}
+#else
+	kgsl_bo->bo_timestamp = timestamp;
 #endif
 }
 
 drm_private uint32_t kgsl_bo_get_timestamp(struct kgsl_bo *kgsl_bo)
 {
-	uint32_t timestamp = 0;
 #if 0
+	uint32_t timestamp = 0;
 	struct fd_bo *bo = &kgsl_bo->base;
 	if (bo->name) {
 		struct drm_kgsl_gem_bufinfo req = {
@@ -253,6 +255,8 @@ drm_private uint32_t kgsl_bo_get_timestamp(struct kgsl_bo *kgsl_bo)
 
 		timestamp = req.active;
 	}
-#endif
 	return timestamp;
+#else
+	return kgsl_bo->bo_timestamp;
+#endif
 }

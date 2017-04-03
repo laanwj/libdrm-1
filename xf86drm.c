@@ -631,6 +631,7 @@ static int drmOpenByName(const char *name, int type)
     for (i = base; i < base + DRM_MAX_MINOR; i++) {
 	if ((fd = drmOpenMinor(i, 1, type)) >= 0) {
 	    if ((version = drmGetVersion(fd))) {
+                drmMsg("drm version name '%s', expected '%s'\n", version->name, name);
 		if (!strcmp(version->name, name)) {
 		    drmFreeVersion(version);
 		    id = drmGetBusid(fd);

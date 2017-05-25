@@ -86,15 +86,28 @@ static int kgsl_bo_madvise(struct fd_bo *bo, int willneed)
 static void kgsl_bo_destroy(struct fd_bo *bo)
 {
 	struct kgsl_bo *kgsl_bo = to_kgsl_bo(bo);
-	gsl_memdesc_t memdesc = {
-			.gpuaddr = kgsl_bo->gpuaddr,
-	};
+	gsl_memdesc_t memdesc = {};
 	struct _kgsl_sharedmem_free_t req = {
 			.memdesc = &memdesc,
 	};
 	int ret;
+        void *value;
 
-	printf("@MF@ %s gpuaddr=%08x\n", __func__, kgsl_bo->gpuaddr);
+	/* look up associated memdesc structure, as the API expects it to be
+	 * passed in as-is */
+	if (drmHashLookup(kgsl_bo->dev->memdesc_table, kgsl_bo->gpuaddr, &value)) {
+		/* somehow the handle is not known to us - try with default gsl_memdesc_t.
+		 * This will leak memory if the buffer is not in the default aparture.
+		 */
+		memdesc.gpuaddr = kgsl_bo->gpuaddr;
+		ERROR_MSG("missing handle %08x in memdesc table", kgsl_bo->gpuaddr);
+	} else {
+		memdesc = *((gsl_memdesc_t*)value);
+		drmHashDelete(kgsl_bo->dev->memdesc_table, kgsl_bo->gpuaddr);
+	}
+
+	printf("@MF@ %s gpuaddr=%08x size=%08x priv=%08x priv2=%08x\n", __func__,
+		memdesc.gpuaddr, memdesc.size, memdesc.priv, memdesc.priv2);
 
 	ret = ioctl(kgsl_bo->dev->pipe->fd, IOCTL_KGSL_SHAREDMEM_FREE, &req);
 	if (ret) {
@@ -139,24 +152,28 @@ drm_private int kgsl_bo_new_handle(struct fd_device *dev,
 		uint32_t size, uint32_t flags, uint32_t *handle)
 {
 	struct kgsl_device *kgsl_dev = to_kgsl_device(dev);
-	gsl_memdesc_t memdesc;
+	gsl_memdesc_t *memdesc = calloc(1, sizeof(gsl_memdesc_t));
 	struct _kgsl_sharedmem_alloc_t req = {
 			.device_id = GSL_DEVICE_YAMATO,
 			.sizebytes = size,
 			.flags = GSL_MEMFLAGS_ALIGN4K,
-			.memdesc = &memdesc,
+			.memdesc = memdesc,
 	};
 	int ret;
 
 	ret = ioctl(kgsl_dev->pipe->fd, IOCTL_KGSL_SHAREDMEM_ALLOC, &req);
 	if (ret) {
 		ERROR_MSG("gpumem allocation failed: %s", strerror(errno));
+		free(memdesc);
 		return ret;
 	}
-	printf("@MF@ %s size=0x%x flags=0x%x => gpuaddr %08x size %08x priv %08x priv2 %08x\n",
-		__func__, size, flags, memdesc.gpuaddr, memdesc.size, memdesc.priv, memdesc.priv2);
+	printf("@MF@ %s size=0x%x flags=0x%x => gpuaddr=%08x size=%08x priv=%08x priv2=%08x\n",
+		__func__, size, flags, memdesc->gpuaddr, memdesc->size, memdesc->priv, memdesc->priv2);
 
-	*handle = memdesc.gpuaddr;
+	*handle = memdesc->gpuaddr;
+
+	/* hold on to memdesc structure, need it again for freeing */
+	drmHashInsert(kgsl_dev->memdesc_table, memdesc->gpuaddr, memdesc);
 
 	return 0;
 }

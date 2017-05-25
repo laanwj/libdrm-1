@@ -147,7 +147,8 @@ drm_private int kgsl_bo_new_handle(struct fd_device *dev,
 		ERROR_MSG("gpumem allocation failed: %s", strerror(errno));
 		return ret;
 	}
-	printf("@MF@ %s size=0x%x flags=0x%x => gpuaddr %08x\n", __func__, size, flags, memdesc.gpuaddr);
+	printf("@MF@ %s size=0x%x flags=0x%x => gpuaddr %08x size %08x priv %08x priv2 %08x\n",
+		__func__, size, flags, memdesc.gpuaddr, memdesc.size, memdesc.priv, memdesc.priv2);
 
 	*handle = memdesc.gpuaddr;
 

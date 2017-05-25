@@ -36,9 +36,22 @@
 
 #include "kgsl_priv.h"
 
+static void kgsl_cleanup_memdesc_table(void *memdesc_table)
+{
+	unsigned long key;
+	void *value;
+	if (drmHashFirst(memdesc_table, &key, &value)) {
+		do {
+			free(value);
+		} while(drmHashNext(memdesc_table, &key, &value));
+	}
+	drmHashDestroy(memdesc_table);
+}
+
 static void kgsl_device_destroy(struct fd_device *dev)
 {
 	struct kgsl_device *kgsl_dev = to_kgsl_device(dev);
+	kgsl_cleanup_memdesc_table(kgsl_dev->memdesc_table);
 	free(kgsl_dev);
 }
 
@@ -60,6 +73,8 @@ drm_private struct fd_device * kgsl_device_new(int fd)
 
 	if (!kgsl_dev)
 		return NULL;
+
+	kgsl_dev->memdesc_table = drmHashCreate();
 
 	dev = &kgsl_dev->base;
 	dev->funcs = &funcs;

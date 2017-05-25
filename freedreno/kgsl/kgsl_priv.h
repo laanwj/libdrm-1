@@ -38,6 +38,8 @@ struct kgsl_pipe;
 struct kgsl_device {
 	struct fd_device base;
 	struct kgsl_pipe *pipe;
+	/* mapping from handle to gsl_memdesc_t* */
+        void *memdesc_table;
 };
 
 static inline struct kgsl_device * to_kgsl_device(struct fd_device *x)

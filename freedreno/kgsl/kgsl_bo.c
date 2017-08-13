@@ -101,7 +101,7 @@ static void kgsl_bo_destroy(struct fd_bo *bo)
 		drmHashDelete(kgsl_bo->dev->memdesc_table, kgsl_bo->gpuaddr);
 	}
 
-	printf("@MF@ %s gpuaddr=%08x size=%08x priv=%08x priv2=%08x\n", __func__,
+	DEBUG_MSG("@MF@ %s gpuaddr=%08x size=%08x priv=%08x priv2=%08x\n", __func__,
 		memdesc.gpuaddr, memdesc.size, memdesc.priv, memdesc.priv2);
 
 	ret = ioctl(kgsl_bo->dev->pipe->fd, IOCTL_KGSL_SHAREDMEM_FREE, &req);
@@ -161,7 +161,7 @@ drm_private int kgsl_bo_new_handle(struct fd_device *dev,
 		free(memdesc);
 		return ret;
 	}
-	printf("@MF@ %s size=0x%x flags=0x%x => gpuaddr=%08x size=%08x priv=%08x priv2=%08x\n",
+	DEBUG_MSG("@MF@ %s size=0x%x flags=0x%x => gpuaddr=%08x size=%08x priv=%08x priv2=%08x\n",
 		__func__, size, flags, memdesc->gpuaddr, memdesc->size, memdesc->priv, memdesc->priv2);
 
 	*handle = memdesc->gpuaddr;

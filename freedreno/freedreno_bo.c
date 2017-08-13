@@ -85,7 +85,7 @@ drm_private void fd_cleanup_bo_cache(struct fd_device *dev, time_t time)
 {
 	int i;
 
-	printf("@MF@ %s devtime=%d time=%d num_buckets=%d\n", __func__, (int)dev->time, (int)time, dev->num_buckets);
+	DEBUG_MSG("@MF@ %s devtime=%d time=%d num_buckets=%d\n", __func__, (int)dev->time, (int)time, dev->num_buckets);
 	if (dev->time == time)
 		return;
 
@@ -96,13 +96,13 @@ drm_private void fd_cleanup_bo_cache(struct fd_device *dev, time_t time)
 		while (!LIST_IS_EMPTY(&bucket->list)) {
 			bo = LIST_ENTRY(struct fd_bo, bucket->list.next, list);
 
-			printf("@MF@ test cache %08x\n", bo->handle);
+			DEBUG_MSG("@MF@ test cache %08x\n", bo->handle);
 
 			/* keep things in cache for at least 1 second: */
 			if (time && ((time - bo->free_time) <= 1))
 				break;
 
-			printf("@MF@ remove from cache %08x\n", bo->handle);
+			DEBUG_MSG("@MF@ remove from cache %08x\n", bo->handle);
 			list_del(&bo->list);
 			bo_del(bo);
 		}
@@ -173,7 +173,7 @@ static struct fd_bo *find_in_bucket(struct fd_device *dev,
 
 const uint32_t mf_break_handle = 0x8dc56000;
 void mf_breakpoint(const char *what) {
-	printf("@MF@ BP: %s\n", what);
+	DEBUG_MSG("@MF@ BP: %s\n", what);
 }
 
 struct fd_bo *
@@ -295,7 +295,7 @@ void fd_bo_del(struct fd_bo *bo)
 {
 	struct fd_device *dev = bo->dev;
 
-	printf("@MF@ %s %08x\n", __func__, bo->handle);
+	DEBUG_MSG("@MF@ %s %08x\n", __func__, bo->handle);
 	if (bo->handle == mf_break_handle) {
 		mf_breakpoint("del");
 	}
@@ -319,7 +319,7 @@ void fd_bo_del(struct fd_bo *bo)
 
 			clock_gettime(CLOCK_MONOTONIC, &time);
 
-			printf("@MF@ add to cache %08x\n", bo->handle);
+			DEBUG_MSG("@MF@ add to cache %08x\n", bo->handle);
 
 			bo->free_time = time.tv_sec;
 			list_addtail(&bo->list, &bucket->list);
@@ -342,7 +342,7 @@ out:
 /* Called under table_lock */
 static void bo_del(struct fd_bo *bo)
 {
-	printf("@MF@ %s %08x\n", __func__, bo->handle);
+	DEBUG_MSG("@MF@ %s %08x\n", __func__, bo->handle);
 
 	if (bo->map)
 		drm_munmap(bo->map, bo->size);

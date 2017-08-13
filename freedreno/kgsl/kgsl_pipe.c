@@ -108,7 +108,7 @@ static void kgsl_pipe_destroy(struct fd_pipe *pipe)
 			.drawctxt_id = kgsl_pipe->drawctxt_id,
 	};
 
-	printf("@MF@ %s [%p] fd=%d drawctxt=%d\n", __func__, kgsl_pipe, kgsl_pipe->fd, kgsl_pipe->drawctxt_id);
+	DEBUG_MSG("@MF@ %s [%p] fd=%d drawctxt=%d\n", __func__, kgsl_pipe, kgsl_pipe->fd, kgsl_pipe->drawctxt_id);
 
 	if (kgsl_pipe->drawctxt_id)
 		ioctl(kgsl_pipe->fd, IOCTL_KGSL_CONTEXT_DESTROY, &req);
@@ -303,7 +303,7 @@ drm_private struct fd_pipe * kgsl_pipe_new(struct fd_device *dev,
 	INFO_MSG(" Device version:  %06x",
 			kgsl_pipe->chip_id);
 #endif
-	printf("@MF@ %s pipe=%p chipId=%08x fd=%d drawctxt=%d\n", __func__,
+	DEBUG_MSG("@MF@ %s pipe=%p chipId=%08x fd=%d drawctxt=%d\n", __func__,
 		kgsl_pipe,
 		kgsl_pipe->devinfo.chip_id,
 		kgsl_pipe->fd,

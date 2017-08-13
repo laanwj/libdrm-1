@@ -69,7 +69,7 @@ static void kgsl_rb_bo_del(struct kgsl_rb_bo *bo)
 
 	munmap(bo->hostptr, bo->size);
 
-	printf("@MF@ %s gpuaddr=%08x\n", __func__, bo->gpuaddr);
+	DEBUG_MSG("@MF@ %s gpuaddr=%08x\n", __func__, bo->gpuaddr);
 
 	ret = ioctl(bo->pipe->fd, IOCTL_KGSL_SHAREDMEM_FREE, &req);
 	if (ret) {

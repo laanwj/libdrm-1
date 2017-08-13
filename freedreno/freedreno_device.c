@@ -75,10 +75,10 @@ struct fd_device * fd_device_new(int fd)
 	} else if (!strcmp(version->name, "imxdrm")) {
 		DEBUG_MSG("imx DRM device");
 		if (getenv("FD_DRM_USE_KGSL")) {
-			printf("@MF@ using KGSL kernel interface\n");
+			DEBUG_MSG("@MF@ using KGSL kernel interface\n");
 			dev = kgsl_device_new(fd);
 		} else {
-			printf("@MF@ using DRM kernel interface\n");
+			DEBUG_MSG("@MF@ using DRM kernel interface\n");
 			dev = msm_device_new(fd);
 		}
 	} else {
@@ -119,7 +119,7 @@ struct fd_device * fd_device_ref(struct fd_device *dev)
 {
 	atomic_inc(&dev->refcnt);
 
-	printf("@MF@ %s new refcnt=%d\n", __func__, atomic_read(&dev->refcnt));
+	DEBUG_MSG("@MF@ %s new refcnt=%d\n", __func__, atomic_read(&dev->refcnt));
 
 	return dev;
 }
@@ -128,7 +128,7 @@ static void fd_device_del_impl(struct fd_device *dev)
 {
 	int close_fd = dev->closefd ? dev->fd : -1;
 	fd_bo_cache_cleanup(&dev->bo_cache, 0);
-	printf("@MF@ %s\n", __func__);
+	DEBUG_MSG("@MF@ %s\n", __func__);
 	fd_cleanup_bo_cache(dev, 0);
 	drmHashDestroy(dev->handle_table);
 	drmHashDestroy(dev->name_table);
@@ -139,7 +139,7 @@ static void fd_device_del_impl(struct fd_device *dev)
 
 drm_private void fd_device_del_locked(struct fd_device *dev)
 {
-	printf("@MF@ %s refcnt=%d\n", __func__, atomic_read(&dev->refcnt));
+	DEBUG_MSG("@MF@ %s refcnt=%d\n", __func__, atomic_read(&dev->refcnt));
 	if (!atomic_dec_and_test(&dev->refcnt))
 		return;
 	fd_device_del_impl(dev);
@@ -147,7 +147,7 @@ drm_private void fd_device_del_locked(struct fd_device *dev)
 
 void fd_device_del(struct fd_device *dev)
 {
-	printf("@MF@ %s refcnt=%d\n", __func__, atomic_read(&dev->refcnt));
+	DEBUG_MSG("@MF@ %s refcnt=%d\n", __func__, atomic_read(&dev->refcnt));
 	if (!atomic_dec_and_test(&dev->refcnt))
 		return;
 	pthread_mutex_lock(&table_lock);

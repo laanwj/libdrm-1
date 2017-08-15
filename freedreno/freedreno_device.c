@@ -128,8 +128,6 @@ static void fd_device_del_impl(struct fd_device *dev)
 {
 	int close_fd = dev->closefd ? dev->fd : -1;
 	fd_bo_cache_cleanup(&dev->bo_cache, 0);
-	DEBUG_MSG("@MF@ %s\n", __func__);
-	fd_cleanup_bo_cache(dev, 0);
 	drmHashDestroy(dev->handle_table);
 	drmHashDestroy(dev->name_table);
 	dev->funcs->destroy(dev);

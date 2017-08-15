@@ -82,97 +82,6 @@ static struct fd_bo * bo_from_handle(struct fd_device *dev,
 	return bo;
 }
 
-/* Frees older cached buffers.  Called under table_lock */
-drm_private void fd_cleanup_bo_cache(struct fd_device *dev, time_t time)
-{
-	int i;
-
-	DEBUG_MSG("@MF@ %s devtime=%d time=%d num_buckets=%d\n", __func__, (int)dev->time, (int)time, dev->num_buckets);
-	if (dev->time == time)
-		return;
-
-	for (i = 0; i < dev->num_buckets; i++) {
-		struct fd_bo_bucket *bucket = &dev->cache_bucket[i];
-		struct fd_bo *bo;
-
-		while (!LIST_IS_EMPTY(&bucket->list)) {
-			bo = LIST_ENTRY(struct fd_bo, bucket->list.next, list);
-
-			DEBUG_MSG("@MF@ test cache %08x\n", bo->handle);
-
-			/* keep things in cache for at least 1 second: */
-			if (time && ((time - bo->free_time) <= 1))
-				break;
-
-			DEBUG_MSG("@MF@ remove from cache %08x\n", bo->handle);
-			list_del(&bo->list);
-			bo_del(bo);
-		}
-	}
-
-	dev->time = time;
-}
-
-static struct fd_bo_bucket * get_bucket(struct fd_device *dev, uint32_t size)
-{
-	int i;
-
-	/* hmm, this is what intel does, but I suppose we could calculate our
-	 * way to the correct bucket size rather than looping..
-	 */
-	for (i = 0; i < dev->num_buckets; i++) {
-		struct fd_bo_bucket *bucket = &dev->cache_bucket[i];
-		if (bucket->size >= size) {
-			return bucket;
-		}
-	}
-
-	return NULL;
-}
-
-static int is_idle(struct fd_bo *bo)
-{
-	return fd_bo_cpu_prep(bo, NULL,
-			DRM_FREEDRENO_PREP_READ |
-			DRM_FREEDRENO_PREP_WRITE |
-			DRM_FREEDRENO_PREP_NOSYNC) == 0;
-}
-
-static struct fd_bo *find_in_bucket(struct fd_device *dev,
-		struct fd_bo_bucket *bucket, uint32_t flags)
-{
-	struct fd_bo *bo = NULL;
-
-	/* TODO .. if we had an ALLOC_FOR_RENDER flag like intel, we could
-	 * skip the busy check.. if it is only going to be a render target
-	 * then we probably don't need to stall..
-	 *
-	 * NOTE that intel takes ALLOC_FOR_RENDER bo's from the list tail
-	 * (MRU, since likely to be in GPU cache), rather than head (LRU)..
-	 */
-	pthread_mutex_lock(&table_lock);
-	while (!LIST_IS_EMPTY(&bucket->list)) {
-		bo = LIST_ENTRY(struct fd_bo, bucket->list.next, list);
-		if (0 /* TODO: if madvise tells us bo is gone... */) {
-			list_del(&bo->list);
-			bo_del(bo);
-			bo = NULL;
-			continue;
-		}
-		/* TODO check for compatible flags? */
-		if (is_idle(bo)) {
-			list_del(&bo->list);
-			break;
-		}
-		bo = NULL;
-		break;
-	}
-	pthread_mutex_unlock(&table_lock);
-
-	return bo;
-}
-
-
 const uint32_t mf_break_handle = 0x8dc56000;
 void mf_breakpoint(const char *what) {
 	DEBUG_MSG("@MF@ BP: %s\n", what);
@@ -315,28 +224,8 @@ void fd_bo_del(struct fd_bo *bo)
 
 	pthread_mutex_lock(&table_lock);
 
-	if (bo->bo_reuse && (fd_bo_cache_free(&dev->bo_cache, bo) == 0)) {
-		struct fd_bo_bucket *bucket = get_bucket(dev, bo->size);
-
-		/* see if we can be green and recycle: */
-		if (bucket) {
-			struct timespec time;
-
-			clock_gettime(CLOCK_MONOTONIC, &time);
-
-			DEBUG_MSG("@MF@ add to cache %08x\n", bo->handle);
-
-			bo->free_time = time.tv_sec;
-			list_addtail(&bo->list, &bucket->list);
-			fd_cleanup_bo_cache(dev, time.tv_sec);
-
-			/* bo's in the bucket cache don't have a ref and
-			 * don't hold a ref to the dev:
-			 */
-
-			goto out;
-		}
-	}
+	if (bo->bo_reuse && (fd_bo_cache_free(&dev->bo_cache, bo) == 0))
+		goto out;
 
 	bo_del(bo);
 	fd_device_del_locked(dev);

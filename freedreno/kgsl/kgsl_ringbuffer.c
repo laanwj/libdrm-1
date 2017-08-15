@@ -149,11 +149,13 @@ static int kgsl_ringbuffer_flush(struct fd_ringbuffer *ring, uint32_t *last_star
 		/* fix up size field in last cmd packet */
 		uint32_t last_size = (uint32_t)(ring->cur - last_start);
 		/* 5 is length of first packet, 2 for the two 7f000000's */
+/*
 		last_start[2] = last_size - (5 + 2);
 		ibdesc.gpuaddr = kgsl_ring->bo->gpuaddr;
 		ibdesc.hostptr = kgsl_ring->bo->hostptr;
 		ibdesc.sizedwords = 0x145;
 		req.timestamp = (uint32_t)kgsl_ring->bo->hostptr;
+*/
 	}
 
 	do {

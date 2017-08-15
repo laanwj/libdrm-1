@@ -49,14 +49,14 @@ struct fd_device * fd_device_new(int fd)
 
 	/* figure out if we are kgsl or msm drm driver: */
 	version = drmGetVersion(fd);
-	if (!version) {
+/*	if (!version) {
 		ERROR_MSG("cannot get version: %s", strerror(errno));
 		return NULL;
 	}
 
 	INFO_MSG("@MF@ %s version=%s\n", __func__, version->name);
-
-	if (!strcmp(version->name, "msm")) {
+*/
+	if (0 && !strcmp(version->name, "msm")) {
 		DEBUG_MSG("msm DRM device");
 		if (version->version_major != 1) {
 			ERROR_MSG("unsupported version: %u.%u.%u", version->version_major,
@@ -68,7 +68,7 @@ struct fd_device * fd_device_new(int fd)
 		dev = msm_device_new(fd);
 		dev->version = version->version_minor;
 #ifdef HAVE_FREEDRENO_KGSL
-	} else if (!strcmp(version->name, "kgsl")) {
+	} else if (1 || !strcmp(version->name, "kgsl")) {
 		DEBUG_MSG("kgsl DRM device");
 		dev = kgsl_device_new(fd);
 #endif
@@ -87,7 +87,7 @@ struct fd_device * fd_device_new(int fd)
 	}
 
 out:
-	drmFreeVersion(version);
+	//drmFreeVersion(version);
 
 	if (!dev)
 		return NULL;

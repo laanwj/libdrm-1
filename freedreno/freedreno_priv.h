@@ -176,7 +176,7 @@ struct fd_bo {
 #define ALIGN(v,a) (((v) + (a) - 1) & ~((a) - 1))
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
-#define enable_debug 0  /* TODO make dynamic */
+#define enable_debug 1  /* TODO make dynamic */
 
 #define INFO_MSG(fmt, ...) \
 		do { drmMsg("[I] "fmt " (%s:%d)\n", \

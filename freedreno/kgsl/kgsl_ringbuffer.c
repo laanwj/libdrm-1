@@ -43,8 +43,7 @@
 struct kgsl_rb_bo {
 	struct kgsl_pipe *pipe;
 	void    *hostptr;
-	uint32_t gpuaddr;
-	uint32_t size;
+	gsl_memdesc_t memdesc;
 };
 
 struct kgsl_ringbuffer {
@@ -59,17 +58,14 @@ static inline struct kgsl_ringbuffer * to_kgsl_ringbuffer(struct fd_ringbuffer *
 
 static void kgsl_rb_bo_del(struct kgsl_rb_bo *bo)
 {
-	gsl_memdesc_t memdesc = {
-			.gpuaddr = bo->gpuaddr,
-	};
 	struct _kgsl_sharedmem_free_t req = {
-			.memdesc = &memdesc,
+			.memdesc = &bo->memdesc,
 	};
 	int ret;
 
-	munmap(bo->hostptr, bo->size);
+	munmap(bo->hostptr, bo->memdesc.size);
 
-	DEBUG_MSG("@MF@ %s gpuaddr=%08x\n", __func__, bo->gpuaddr);
+	DEBUG_MSG("@MF@ %s gpuaddr=%08x\n", __func__, bo->memdesc.gpuaddr);
 
 	ret = ioctl(bo->pipe->fd, IOCTL_KGSL_SHAREDMEM_FREE, &req);
 	if (ret) {
@@ -82,12 +78,10 @@ static void kgsl_rb_bo_del(struct kgsl_rb_bo *bo)
 static struct kgsl_rb_bo * kgsl_rb_bo_new(struct kgsl_pipe *pipe, uint32_t size)
 {
 	struct kgsl_rb_bo *bo;
-	gsl_memdesc_t memdesc;
 	struct _kgsl_sharedmem_alloc_t req = {
 			.device_id = GSL_DEVICE_YAMATO,
 			.sizebytes = ALIGN(size, 4096),
 			.flags = GSL_MEMFLAGS_GPUREADONLY | GSL_MEMFLAGS_ALIGN4K,
-			.memdesc = &memdesc,
 	};
 	int ret;
 
@@ -97,6 +91,7 @@ static struct kgsl_rb_bo * kgsl_rb_bo_new(struct kgsl_pipe *pipe, uint32_t size)
 		return NULL;
 	}
 
+	req.memdesc = &bo->memdesc;
 	ret = ioctl(pipe->fd, IOCTL_KGSL_SHAREDMEM_ALLOC, &req);
 	if (ret) {
 		ERROR_MSG("gpumem allocation failed: %s", strerror(errno));
@@ -104,10 +99,8 @@ static struct kgsl_rb_bo * kgsl_rb_bo_new(struct kgsl_pipe *pipe, uint32_t size)
 	}
 
 	bo->pipe = pipe;
-	bo->gpuaddr = memdesc.gpuaddr;
-	bo->size = memdesc.size;
 	bo->hostptr = mmap(NULL, size, PROT_WRITE|PROT_READ,
-				MAP_SHARED, pipe->fd, memdesc.gpuaddr);
+				MAP_SHARED, pipe->fd, bo->memdesc.gpuaddr);
 
 	return bo;
 fail:
@@ -132,7 +125,7 @@ static int kgsl_ringbuffer_flush(struct fd_ringbuffer *ring, uint32_t *last_star
 	struct _kgsl_cmdstream_issueibcmds_t req = {
 			.device_id	= GSL_DEVICE_YAMATO,
 			.drawctxt_index	= kgsl_pipe->drawctxt_id,
-			.ibaddr 	= kgsl_ring->bo->gpuaddr + offset,
+			.ibaddr 	= kgsl_ring->bo->memdesc.gpuaddr + offset,
 			.sizedwords  	= ring->cur - last_start,
 			.timestamp 	= &timestamp,
 			.flags       	= 0, //@MF check KGSL_CONTEXT_SUBMIT_IB_LIST,
@@ -192,7 +185,7 @@ static uint32_t kgsl_ringbuffer_emit_reloc_ring(struct fd_ringbuffer *ring,
 {
 	struct kgsl_ringbuffer *target_ring = to_kgsl_ringbuffer(target);
 	assert(cmd_idx == 0);
-	(*ring->cur++) = target_ring->bo->gpuaddr + submit_offset;
+	(*ring->cur++) = target_ring->bo->memdesc.gpuaddr + submit_offset;
 	return size;
 }
 
